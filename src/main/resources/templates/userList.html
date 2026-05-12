@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Users – BikeHub Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    :root { --green:#2ECC71; --dark:#0F1923; --card:#1A2535; --text:#E8EDF2; --muted:#7A8FA6; --border:rgba(255,255,255,0.1); --accent:#F0C040; }
+    body { font-family:'DM Sans',sans-serif; background:var(--dark); color:var(--text); min-height:100vh; }
+
+    nav { display:flex; justify-content:space-between; align-items:center;
+          padding:1.1rem 2.5rem; border-bottom:1px solid var(--border);
+          background:var(--dark); position:sticky; top:0; z-index:10; }
+    .logo { font-family:'Syne',sans-serif; font-weight:800; font-size:1.4rem; color:var(--green); }
+    .logo span { color:var(--text); }
+    .admin-badge { background:rgba(231,76,60,.15); color:#e74c3c; border:1px solid rgba(231,76,60,.3);
+                   padding:.25rem .75rem; border-radius:100px; font-size:.78rem; }
+    .btn { padding:.5rem 1.2rem; border-radius:8px; text-decoration:none; font-size:.88rem;
+           font-weight:500; border:none; cursor:pointer; transition:all .2s; display:inline-block; }
+    .btn-red    { background:rgba(231,76,60,.15); color:#e74c3c; border:1px solid rgba(231,76,60,.3); }
+    .btn-red:hover { background:rgba(231,76,60,.3); }
+    .btn-green  { background:var(--green); color:var(--dark); }
+    .btn-outline { background:transparent; border:1px solid var(--border); color:var(--muted); }
+    .btn-outline:hover { border-color:var(--green); color:var(--green); }
+
+    .container { max-width:1100px; margin:0 auto; padding:2rem 1.5rem; }
+    .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; }
+    .page-header h2 { font-family:'Syne',sans-serif; font-size:1.5rem; }
+
+    .alert { padding:.75rem 1rem; border-radius:10px; font-size:.9rem; margin-bottom:1.2rem; }
+    .alert-success { background:rgba(46,204,113,.15); color:var(--green); border:1px solid rgba(46,204,113,.3); }
+    .alert-error   { background:rgba(231,76,60,.15); color:#e74c3c; border:1px solid rgba(231,76,60,.3); }
+
+    .search-bar { display:flex; gap:.8rem; margin-bottom:1.5rem; }
+    .search-bar input { flex:1; padding:.7rem 1rem; border-radius:10px;
+                        background:var(--card); border:1px solid var(--border);
+                        color:var(--text); font-family:'DM Sans',sans-serif; font-size:.93rem; outline:none; }
+    .search-bar input:focus { border-color:var(--green); }
+
+    .table-wrap { background:var(--card); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+    table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    thead { background:rgba(255,255,255,0.04); }
+    th { text-align:left; padding:.9rem 1.2rem; font-size:.78rem; text-transform:uppercase;
+         letter-spacing:.07em; color:var(--muted); font-weight:600; }
+    td { padding:.85rem 1.2rem; border-top:1px solid var(--border); vertical-align:middle; }
+    tr:hover td { background:rgba(255,255,255,0.02); }
+
+    .avatar-sm { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,var(--green),#0d9e50);
+                 display:flex; align-items:center; justify-content:center; font-size:.9rem; font-weight:700;
+                 overflow:hidden; flex-shrink:0; }
+    .avatar-sm img { width:100%; height:100%; object-fit:cover; }
+    .user-cell { display:flex; align-items:center; gap:.8rem; }
+    .user-cell .name { font-weight:500; }
+    .user-cell .uname { color:var(--muted); font-size:.8rem; }
+
+    .role-badge { padding:.2rem .65rem; border-radius:100px; font-size:.75rem; font-weight:600; }
+    .role-RENTER     { background:rgba(46,204,113,.15); color:var(--green); }
+    .role-BIKE_OWNER { background:rgba(240,192,64,.15);  color:var(--accent); }
+    .role-ADMIN      { background:rgba(231,76,60,.15);   color:#e74c3c; }
+
+    .actions-cell { display:flex; gap:.5rem; }
+    .empty { text-align:center; padding:3rem; color:var(--muted); }
+    .count { color:var(--muted); font-size:.85rem; margin-top:.8rem; }
+  </style>
+</head>
+<body>
+<nav>
+  <div style="display:flex;align-items:center;gap:1rem;">
+    <div class="logo">Bike<span>Hub</span></div>
+    <span class="admin-badge">🛡️ Admin Panel</span>
+  </div>
+  <a th:href="@{/logout}" class="btn btn-red">Logout</a>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <h2>User Management</h2>
+  </div>
+
+  <div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
+  <div th:if="${error}"   class="alert alert-error"   th:text="${error}"></div>
+
+  <!-- Search (READ) -->
+  <form th:action="@{/admin/users}" method="get" class="search-bar">
+    <input type="text" name="search" th:value="${search}" placeholder="Search by name, username or email...">
+    <button type="submit" class="btn btn-green">Search</button>
+    <a th:href="@{/admin/users}" class="btn btn-outline">Clear</a>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+      <tr>
+        <th>User</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Role</th>
+        <th>Actions</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr th:if="${#lists.isEmpty(users)}">
+        <td colspan="5" class="empty">No users found.</td>
+      </tr>
+      <tr th:each="u : ${users}">
+        <td>
+          <div class="user-cell">
+            <div class="avatar-sm">
+              <img th:if="${u.profilePhoto != null and u.profilePhoto != 'default.png'}"
+                   th:src="@{'/uploads/' + ${u.profilePhoto}}" alt="">
+              <span th:if="${u.profilePhoto == null or u.profilePhoto == 'default.png'}"
+                    th:text="${#strings.substring(u.name,0,1)}"></span>
+            </div>
+            <div>
+              <div class="name"  th:text="${u.name}"></div>
+              <div class="uname" th:text="'@' + ${u.username}"></div>
+            </div>
+          </div>
+        </td>
+        <td th:text="${u.email}"></td>
+        <td th:text="${u.phone}"></td>
+        <td>
+                        <span class="role-badge"
+                              th:classappend="'role-' + ${u.role}"
+                              th:text="${u.role}">
+                        </span>
+        </td>
+        <td>
+          <div class="actions-cell">
+            <a th:href="@{/edit(id=${u.id})}" class="btn btn-outline">✏️ Edit</a>
+            <form th:action="@{/admin/delete}" method="post"
+                  th:onsubmit="'return confirm(\'Delete ' + ${u.username} + '?\')'">
+              <input type="hidden" name="id" th:value="${u.id}">
+              <button type="submit" class="btn btn-red">🗑 Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="count" th:text="'Total: ' + ${#lists.size(users)} + ' user(s)'"></p>
+</div>
+</body>
+</html>
