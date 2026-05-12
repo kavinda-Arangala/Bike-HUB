@@ -1,6 +1,6 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository;
 
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.model.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
