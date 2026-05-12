@@ -1,6 +1,6 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto;
 
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.model.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
 import lombok.Data;
 
 import java.math.BigDecimal;
