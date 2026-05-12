@@ -1,7 +1,7 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.BikeDTO;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.model.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository.BikeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
