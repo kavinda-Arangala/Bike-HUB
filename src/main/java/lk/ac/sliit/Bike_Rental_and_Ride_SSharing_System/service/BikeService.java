@@ -2,6 +2,8 @@ package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.BikeDTO;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeType;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository.BikeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -65,11 +67,11 @@ public class BikeService {
     public List<BikeDTO> searchBikes(String location, String bikeType,
                                      String status, BigDecimal minPrice,
                                      BigDecimal maxPrice) {
-        Bike.BikeType type = (bikeType != null && !bikeType.isBlank())
-                ? Bike.BikeType.valueOf(bikeType.toUpperCase()) : null;
+        BikeType type = (bikeType != null && !bikeType.isBlank())
+                ? BikeType.valueOf(bikeType.toUpperCase()) : null;
 
-        Bike.BikeStatus bikeStatus = (status != null && !status.isBlank())
-                ? Bike.BikeStatus.valueOf(status.toUpperCase()) : null;
+        BikeStatus bikeStatus = (status != null && !status.isBlank())
+                ? BikeStatus.valueOf(status.toUpperCase()) : null;
 
         return bikeRepository.searchBikes(location, type, bikeStatus, minPrice, maxPrice)
                 .stream()
@@ -80,7 +82,7 @@ public class BikeService {
     public void updateBikeStatus(Long bikeId, String newStatus) {
         Bike bike = bikeRepository.findById(bikeId)
                 .orElseThrow(() -> new RuntimeException("Bike not found with ID: " + bikeId));
-        bike.setStatus(Bike.BikeStatus.valueOf(newStatus.toUpperCase()));
+        bike.setStatus(BikeStatus.valueOf(newStatus.toUpperCase()));
         bikeRepository.save(bike);
     }
 
@@ -92,7 +94,7 @@ public class BikeService {
     }
 
     public List<BikeDTO> getAvailableBikes() {
-        return bikeRepository.findByStatus(Bike.BikeStatus.AVAILABLE)
+        return bikeRepository.findByStatus(BikeStatus.AVAILABLE)
                 .stream()
                 .map(BikeDTO::fromEntity)
                 .collect(Collectors.toList());
@@ -103,20 +105,20 @@ public class BikeService {
     }
 
     public long countRentedBikesByOwner(Long ownerId) {
-        return bikeRepository.countByOwnerIdAndStatus(ownerId, Bike.BikeStatus.RENTED);
+        return bikeRepository.countByOwnerIdAndStatus(ownerId, BikeStatus.RENTED);
     }
 
 
     private void mapDtoToEntity(BikeDTO dto, Bike bike) {
         bike.setTitle(dto.getTitle());
-        bike.setBikeType(Bike.BikeType.valueOf(dto.getBikeType().toUpperCase()));
+        bike.setBikeType(BikeType.valueOf(dto.getBikeType().toUpperCase()));
         bike.setLocation(dto.getLocation());
         bike.setDescription(dto.getDescription());
         bike.setDailyPrice(dto.getDailyPrice());
         bike.setWeeklyPrice(dto.getWeeklyPrice());
         bike.setMonthlyPrice(dto.getMonthlyPrice());
         if (dto.getStatus() != null)
-            bike.setStatus(Bike.BikeStatus.valueOf(dto.getStatus().toUpperCase()));
+            bike.setStatus(BikeStatus.valueOf(dto.getStatus().toUpperCase()));
         bike.setPhotoUrl(dto.getPhotoUrl());
         bike.setPhotoUrls(dto.getPhotoUrls());
         bike.setOwnerId(dto.getOwnerId());
