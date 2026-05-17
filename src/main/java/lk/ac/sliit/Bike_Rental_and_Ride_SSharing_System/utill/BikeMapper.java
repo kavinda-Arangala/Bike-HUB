@@ -2,6 +2,8 @@ package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.utill;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.BikeDTO;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeType;
 import org.springframework.stereotype.Component;
 
 /**
@@ -45,7 +47,7 @@ public class BikeMapper {
 
         // Convert String "CYCLE" → BikeType.CYCLE
         if (dto.getBikeType() != null)
-            bike.setBikeType(Bike.BikeType.valueOf(dto.getBikeType().toUpperCase()));
+            bike.setBikeType(BikeType.valueOf(dto.getBikeType().toUpperCase()));
 
         bike.setLocation(dto.getLocation());
         bike.setDescription(dto.getDescription());
@@ -55,7 +57,7 @@ public class BikeMapper {
 
         // Convert String "AVAILABLE" → BikeStatus.AVAILABLE
         if (dto.getStatus() != null)
-            bike.setStatus(Bike.BikeStatus.valueOf(dto.getStatus().toUpperCase()));
+            bike.setStatus(BikeStatus.valueOf(dto.getStatus().toUpperCase()));
 
         bike.setPhotoUrl(dto.getPhotoUrl());
         bike.setPhotoUrls(dto.getPhotoUrls());
