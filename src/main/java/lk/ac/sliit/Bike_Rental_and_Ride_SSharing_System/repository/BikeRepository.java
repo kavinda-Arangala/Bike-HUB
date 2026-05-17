@@ -1,6 +1,8 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,14 +17,14 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
 
     List<Bike> findByOwnerId(Long ownerId);
 
-    List<Bike> findByStatusAndBikeType(Bike.BikeStatus status, Bike.BikeType bikeType);
+    List<Bike> findByStatusAndBikeType(BikeStatus status, BikeType bikeType);
 
-    List<Bike> findByStatus(Bike.BikeStatus status);
+    List<Bike> findByStatus(BikeStatus status);
 
     List<Bike> findByLocationContainingIgnoreCase(String location);
 
     List<Bike> findByBikeTypeAndLocationContainingIgnoreCase(
-            Bike.BikeType bikeType, String location);
+            BikeType bikeType, String location);
 
     List<Bike> findByDailyPriceBetween(BigDecimal minPrice, BigDecimal maxPrice);
 
@@ -34,12 +36,12 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
             "(:maxPrice IS NULL OR b.dailyPrice <= :maxPrice)")
     List<Bike> searchBikes(
             @Param("location") String location,
-            @Param("bikeType") Bike.BikeType bikeType,
-            @Param("status") Bike.BikeStatus status,
+            @Param("bikeType") BikeType bikeType,
+            @Param("status") BikeStatus status,
             @Param("minPrice") BigDecimal minPrice,
             @Param("maxPrice") BigDecimal maxPrice);
 
     long countByOwnerId(Long ownerId);
 
-    long countByOwnerIdAndStatus(Long ownerId, Bike.BikeStatus status);
+    long countByOwnerIdAndStatus(Long ownerId, BikeStatus status);
 }
