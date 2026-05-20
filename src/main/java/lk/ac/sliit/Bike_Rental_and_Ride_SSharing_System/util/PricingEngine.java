@@ -3,48 +3,91 @@ package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.util;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.LocalDateTime;
 
 @Component
 public class PricingEngine {
 
-    private static final double BASE_FARE = 20.0;       // Base fare in currency units
-    private static final double MIN_FARE = 30.0;         // Minimum charge per booking
+    private static final BigDecimal MIN_FARE = BigDecimal.valueOf(50.0);
+
+    // ── Main Fare Calculator ──────────────────────────────────────────────────
 
     /**
-     * Calculate total fare based on time and distance.
+     * Calculate fare based on actual duration using daily rate.
      */
-    public double calculateFare(Bike bike, LocalDateTime startTime, LocalDateTime endTime, double distanceKm) {
+    public BigDecimal calculateFare(Bike bike, LocalDateTime startTime,
+                                    LocalDateTime endTime) {
+        validateTimes(startTime, endTime);
+
         double hours = getHours(startTime, endTime);
-        double timeFare = hours * bike.getPricePerHour();
-        double distanceFare = distanceKm * bike.getPricePerKm();
-        double total = BASE_FARE + timeFare + distanceFare;
-        return Math.max(total, MIN_FARE);
+        double days = hours / 24.0;
+
+        BigDecimal fare;
+
+        // Use best available pricing tier
+        if (days >= 30 && bike.getMonthlyPrice() != null) {
+            double months = days / 30.0;
+            fare = bike.getMonthlyPrice()
+                    .multiply(BigDecimal.valueOf(months));
+        } else if (days >= 7 && bike.getWeeklyPrice() != null) {
+            double weeks = days / 7.0;
+            fare = bike.getWeeklyPrice()
+                    .multiply(BigDecimal.valueOf(weeks));
+        } else {
+            // Default — daily rate prorated by hours
+            fare = bike.getDailyPrice()
+                    .multiply(BigDecimal.valueOf(days));
+        }
+
+        return fare.setScale(2, RoundingMode.HALF_UP)
+                .max(MIN_FARE);
     }
 
-    public double getBaseFare() {
-        return BASE_FARE;
+    /**
+     * Estimate fare for advance booking using planned duration.
+     */
+    public BigDecimal estimateFare(Bike bike, LocalDateTime plannedStart,
+                                   LocalDateTime plannedEnd) {
+        return calculateFare(bike, plannedStart, plannedEnd);
     }
 
-    public double calculateTimeFare(Bike bike, LocalDateTime startTime, LocalDateTime endTime) {
-        return getHours(startTime, endTime) * bike.getPricePerHour();
+    /**
+     * Estimate fare using estimated hours (when exact times unknown).
+     */
+    public BigDecimal estimateFareByHours(Bike bike, double estimatedHours) {
+        if (estimatedHours <= 0) {
+            throw new IllegalArgumentException("Estimated hours must be greater than 0");
+        }
+        double days = estimatedHours / 24.0;
+        BigDecimal fare = bike.getDailyPrice()
+                .multiply(BigDecimal.valueOf(days))
+                .setScale(2, RoundingMode.HALF_UP);
+        return fare.max(MIN_FARE);
     }
 
-    public double calculateDistanceFare(Bike bike, double distanceKm) {
-        return distanceKm * bike.getPricePerKm();
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     public double getHours(LocalDateTime start, LocalDateTime end) {
         Duration duration = Duration.between(start, end);
+        if (duration.isNegative()) {
+            throw new IllegalArgumentException("End time must be after start time");
+        }
         return duration.toMinutes() / 60.0;
     }
 
-    /**
-     * Estimate fare for advance booking (time only, distance unknown).
-     */
-    public double estimateFare(Bike bike, double estimatedHours) {
-        double timeFare = estimatedHours * bike.getPricePerHour();
-        return Math.max(BASE_FARE + timeFare, MIN_FARE);
+    public BigDecimal getMinFare() {
+        return MIN_FARE;
+    }
+
+    private void validateTimes(LocalDateTime start, LocalDateTime end) {
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("Start and end times cannot be null");
+        }
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("End time must be after start time");
+        }
     }
 }
