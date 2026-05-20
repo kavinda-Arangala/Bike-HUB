@@ -1,8 +1,8 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity;
 
 import jakarta.persistence.*;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeStatus;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeType;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeType;
 import lombok.Data;
 
 import java.math.BigDecimal;
