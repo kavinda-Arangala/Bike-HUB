@@ -1,24 +1,11 @@
-package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.utill;
+package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.util;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.BikeDTO;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Bike;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeStatus;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeEnums.BikeType;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeStatus;  // ✅ correct import
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeType;    // ✅ correct import
 import org.springframework.stereotype.Component;
 
-/**
- * BikeMapper
- * Package : utill   (note: matches your project's "utill" spelling)
- *
- * A utility/helper class responsible for converting between:
- *   BikeDTO  ↔  Bike (entity)
- *
- * WHY A SEPARATE MAPPER?
- *   Keeps the Service clean. All conversion logic is in one place.
- *   If you add a new field to Bike, you only update this file.
- *
- * @Component → Spring registers this as a bean so it can be @Autowired
- */
 @Component
 public class BikeMapper {
 
@@ -35,7 +22,6 @@ public class BikeMapper {
     /**
      * Update an existing Bike entity from a BikeDTO
      * Used when EDITING a bike (PUT /api/bikes/{id})
-     * The entity already has id + createdAt — we don't overwrite those.
      */
     public void updateEntityFromDto(BikeDTO dto, Bike bike) {
         applyDto(dto, bike);
@@ -45,7 +31,7 @@ public class BikeMapper {
     private void applyDto(BikeDTO dto, Bike bike) {
         bike.setTitle(dto.getTitle());
 
-        // Convert String "CYCLE" → BikeType.CYCLE
+
         if (dto.getBikeType() != null)
             bike.setBikeType(BikeType.valueOf(dto.getBikeType().toUpperCase()));
 
@@ -55,7 +41,6 @@ public class BikeMapper {
         bike.setWeeklyPrice(dto.getWeeklyPrice());
         bike.setMonthlyPrice(dto.getMonthlyPrice());
 
-        // Convert String "AVAILABLE" → BikeStatus.AVAILABLE
         if (dto.getStatus() != null)
             bike.setStatus(BikeStatus.valueOf(dto.getStatus().toUpperCase()));
 
