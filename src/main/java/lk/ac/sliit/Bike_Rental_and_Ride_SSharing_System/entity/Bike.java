@@ -1,6 +1,8 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity;
 
 import jakarta.persistence.*;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.BikeType;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -64,11 +66,6 @@ public class Bike {
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
-
-
-    public enum BikeType { CYCLE, SCOOTER, MOTORBIKE }
-    public enum BikeStatus { AVAILABLE, RENTED, MAINTENANCE }
-
 
     @PrePersist
     protected void onCreate() {

@@ -1,10 +1,13 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.controller;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.BikeDTO;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.response.ApiResponse;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service.BikeService;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -13,113 +16,144 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bikes")
-@CrossOrigin(origins = "*")
+@RequiredArgsConstructor
 public class BikeController {
 
-    @Autowired
-    private BikeService bikeService;
+    private final BikeService bikeService;
 
-    @PostMapping
-    public ResponseEntity<?> addBike(@RequestBody BikeDTO bikeDTO) {
-        try {
-            BikeDTO saved = bikeService.addBike(bikeDTO);
-            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Failed to add bike: " + e.getMessage()));
-        }
-    }
+    // ── Public endpoints (no token required) ──────────────────────────────────
 
+    /**
+     * GET /api/bikes
+     * Get all bikes — public.
+     */
     @GetMapping
-    public ResponseEntity<List<BikeDTO>> getAllBikes() {
-        return ResponseEntity.ok(bikeService.getAllBikes());
+    public ResponseEntity<ApiResponse<List<BikeDTO>>> getAllBikes() {
+        return ResponseEntity.ok(ApiResponse.success("All bikes", bikeService.getAllBikes()));
     }
 
+    /**
+     * GET /api/bikes/available
+     * Get all available bikes — public.
+     */
     @GetMapping("/available")
-    public ResponseEntity<List<BikeDTO>> getAvailableBikes() {
-        return ResponseEntity.ok(bikeService.getAvailableBikes());
+    public ResponseEntity<ApiResponse<List<BikeDTO>>> getAvailableBikes() {
+        return ResponseEntity.ok(ApiResponse.success("Available bikes", bikeService.getAvailableBikes()));
     }
 
+    /**
+     * GET /api/bikes/{id}
+     * Get a single bike by ID — public.
+     */
     @GetMapping("/{id}")
-    public ResponseEntity<?> getBikeById(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(bikeService.getBikeById(id));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<ApiResponse<BikeDTO>> getBikeById(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Bike details", bikeService.getBikeById(id)));
     }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateBike(@PathVariable Long id,
-                                        @RequestBody BikeDTO bikeDTO) {
-        try {
-            return ResponseEntity.ok(bikeService.updateBike(id, bikeDTO));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteBike(@PathVariable Long id) {
-        try {
-            bikeService.deleteBike(id);
-            return ResponseEntity.ok(Map.of("message", "Bike deleted successfully."));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @GetMapping("/owner/{ownerId}")
-    public ResponseEntity<List<BikeDTO>> getBikesByOwner(@PathVariable Long ownerId) {
-        return ResponseEntity.ok(bikeService.getBikesByOwner(ownerId));
-    }
-
+    /**
+     * GET /api/bikes/search
+     * Search bikes by location, type, status, and price range — public.
+     */
     @GetMapping("/search")
-    public ResponseEntity<List<BikeDTO>> searchBikes(
+    public ResponseEntity<ApiResponse<List<BikeDTO>>> searchBikes(
             @RequestParam(required = false) String location,
             @RequestParam(required = false) String bikeType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice) {
 
-        return ResponseEntity.ok(
-                bikeService.searchBikes(location, bikeType, status, minPrice, maxPrice));
+        List<BikeDTO> results = bikeService.searchBikes(location, bikeType, status, minPrice, maxPrice);
+        return ResponseEntity.ok(ApiResponse.success("Search results", results));
     }
 
+    // ── Authenticated endpoints (RIDER or ADMIN) ──────────────────────────────
+
+    /**
+     * POST /api/bikes
+     * Add a new bike — ADMIN only.
+     */
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BikeDTO>> addBike(@RequestBody BikeDTO bikeDTO) {
+        BikeDTO saved = bikeService.addBike(bikeDTO);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Bike added successfully", saved));
+    }
+
+    /**
+     * PUT /api/bikes/{id}
+     * Update a bike — ADMIN only.
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BikeDTO>> updateBike(
+            @PathVariable Long id,
+            @RequestBody BikeDTO bikeDTO) {
+        return ResponseEntity.ok(ApiResponse.success("Bike updated successfully",
+                bikeService.updateBike(id, bikeDTO)));
+    }
+
+    /**
+     * DELETE /api/bikes/{id}
+     * Delete a bike — ADMIN only.
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteBike(@PathVariable Long id) {
+        bikeService.deleteBike(id);
+        return ResponseEntity.ok(ApiResponse.success("Bike deleted successfully"));
+    }
+
+    /**
+     * PATCH /api/bikes/{id}/status
+     * Update bike status — ADMIN only.
+     */
     @PatchMapping("/{id}/status")
-    public ResponseEntity<?> updateBikeStatus(@PathVariable Long id,
-                                              @RequestBody Map<String, String> body) {
-        try {
-            bikeService.updateBikeStatus(id, body.get("status"));
-            return ResponseEntity.ok(Map.of("message", "Status updated."));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        }
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> updateBikeStatus(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        bikeService.updateBikeStatus(id, body.get("status"));
+        return ResponseEntity.ok(ApiResponse.success("Bike status updated successfully"));
     }
 
+    /**
+     * PATCH /api/bikes/{id}/rating
+     * Update bike rating — RIDER or ADMIN.
+     */
     @PatchMapping("/{id}/rating")
-    public ResponseEntity<?> updateBikeRating(@PathVariable Long id,
-                                              @RequestBody Map<String, Double> body) {
-        try {
-            bikeService.updateBikeRating(id, body.get("rating"));
-            return ResponseEntity.ok(Map.of("message", "Rating updated."));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", e.getMessage()));
-        }
+    @PreAuthorize("hasAnyRole('RIDER','ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> updateBikeRating(
+            @PathVariable Long id,
+            @RequestBody Map<String, Double> body) {
+        bikeService.updateBikeRating(id, body.get("rating"));
+        return ResponseEntity.ok(ApiResponse.success("Bike rating updated successfully"));
     }
 
+    // ── Owner endpoints ───────────────────────────────────────────────────────
+
+    /**
+     * GET /api/bikes/owner/{ownerId}
+     * Get all bikes by a specific owner — ADMIN only.
+     */
+    @GetMapping("/owner/{ownerId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<BikeDTO>>> getBikesByOwner(@PathVariable Long ownerId) {
+        return ResponseEntity.ok(ApiResponse.success("Owner bikes",
+                bikeService.getBikesByOwner(ownerId)));
+    }
+
+    /**
+     * GET /api/bikes/owner/{ownerId}/stats
+     * Get owner bike stats — ADMIN only.
+     */
     @GetMapping("/owner/{ownerId}/stats")
-    public ResponseEntity<Map<String, Long>> getOwnerStats(@PathVariable Long ownerId) {
-        return ResponseEntity.ok(Map.of(
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Long>>> getOwnerStats(@PathVariable Long ownerId) {
+        Map<String, Long> stats = Map.of(
                 "totalBikes",  bikeService.countBikesByOwner(ownerId),
                 "rentedBikes", bikeService.countRentedBikesByOwner(ownerId)
-        ));
+        );
+        return ResponseEntity.ok(ApiResponse.success("Owner stats", stats));
     }
 }
