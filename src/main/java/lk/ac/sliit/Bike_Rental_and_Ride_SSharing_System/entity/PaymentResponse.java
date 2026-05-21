@@ -1,4 +1,4 @@
-package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.response;
+package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity;
 
 import lombok.Builder;
 import lombok.Data;

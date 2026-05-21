@@ -2,133 +2,162 @@ package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.controller;
 
 import jakarta.validation.Valid;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.request.PaymentRequest;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.request.RefundRequest;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.response.ApiResponse;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.response.PaymentResponse;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.PaymentStatus;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service.PaymentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * REST controller for payments.
- * Base URL: /api/payments
- */
 @RestController
 @RequestMapping("/api/payments")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class PaymentController {
 
     private final PaymentService paymentService;
 
-    // ---- INITIATE PAYMENT ----
+    // ── Rider endpoints ───────────────────────────────────────────────────────
 
+    /**
+     * POST /api/payments
+     * Make a payment for a completed rental.
+     */
     @PostMapping
-    public ResponseEntity<ApiResponse<PaymentResponse>> initiatePayment(
+    @PreAuthorize("hasAnyRole('RIDER','ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> makePayment(
+            @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody PaymentRequest request) {
-        try {
-            PaymentResponse payment = paymentService.initiatePayment(request);
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.success("Payment processed successfully.", payment));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
-                    .body(ApiResponse.error(e.getMessage()));
-        }
+        PaymentResponse response = paymentService.makePayment(
+                userDetails.getUsername(), request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Payment successful", response));
     }
 
-    // ---- READ ALL (Admin) ----
-
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getAllPayments() {
-        return ResponseEntity.ok(ApiResponse.success("Payments retrieved.", paymentService.getAllPayments()));
+    /**
+     * GET /api/payments/my
+     * Get all payments of the logged-in user.
+     */
+    @GetMapping("/my")
+    @PreAuthorize("hasAnyRole('RIDER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getMyPayments(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(ApiResponse.success("My payments",
+                paymentService.getMyPayments(userDetails.getUsername())));
     }
 
-    // ---- READ ONE ----
-
+    /**
+     * GET /api/payments/{id}
+     * Get a specific payment by ID.
+     */
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentById(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(ApiResponse.success("Payment found.", paymentService.getPaymentById(id)));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
-        }
+    @PreAuthorize("hasAnyRole('RIDER','ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentById(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Payment details",
+                paymentService.getPaymentById(userDetails.getUsername(), id)));
     }
 
-    // ---- PAYMENT HISTORY BY USER ----
-
-    @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByUser(@PathVariable Long userId) {
-        return ResponseEntity.ok(
-                ApiResponse.success("User payment history retrieved.", paymentService.getPaymentsByUser(userId)));
-    }
-
-    // ---- PAYMENTS BY RENTAL ----
-
+    /**
+     * GET /api/payments/rental/{rentalId}
+     * Get all payments for a specific rental.
+     */
     @GetMapping("/rental/{rentalId}")
-    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByRental(@PathVariable Long rentalId) {
-        return ResponseEntity.ok(
-                ApiResponse.success("Rental payments retrieved.", paymentService.getPaymentsByRental(rentalId)));
+    @PreAuthorize("hasAnyRole('RIDER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByRental(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long rentalId) {
+        return ResponseEntity.ok(ApiResponse.success("Rental payments",
+                paymentService.getPaymentsByRental(
+                        userDetails.getUsername(), rentalId)));
     }
 
-    // ---- PAYMENTS BY STATUS ----
+    // ── Admin endpoints ───────────────────────────────────────────────────────
 
-    @GetMapping("/status/{status}")
-    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByStatus(@PathVariable String status) {
-        try {
-            PaymentStatus ps = PaymentStatus.valueOf(status.toUpperCase());
-            return ResponseEntity.ok(
-                    ApiResponse.success("Payments by status retrieved.", paymentService.getPaymentsByStatus(ps)));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid payment status: " + status));
-        }
+    /**
+     * GET /api/payments/admin/all
+     * Get all payments (admin only).
+     */
+    @GetMapping("/admin/all")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getAllPayments() {
+        return ResponseEntity.ok(ApiResponse.success("All payments",
+                paymentService.getAllPayments()));
     }
 
-    // ---- UPDATE STATUS (Admin manual override) ----
-
-    @PatchMapping("/{id}/status")
-    public ResponseEntity<ApiResponse<PaymentResponse>> updatePaymentStatus(
-            @PathVariable Long id,
-            @RequestParam String status) {
-        try {
-            PaymentStatus ps = PaymentStatus.valueOf(status.toUpperCase());
-            PaymentResponse updated = paymentService.updatePaymentStatus(id, ps);
-            return ResponseEntity.ok(ApiResponse.success("Payment status updated.", updated));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid status: " + status));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
-        }
+    /**
+     * GET /api/payments/admin/status/{status}
+     * Get payments filtered by status (admin only).
+     */
+    @GetMapping("/admin/status/{status}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByStatus(
+            @PathVariable String status) {
+        return ResponseEntity.ok(ApiResponse.success("Payments by status",
+                paymentService.getPaymentsByStatus(status)));
     }
 
-    // ---- REFUND ----
-
-    @PostMapping("/{id}/refund")
-    public ResponseEntity<ApiResponse<PaymentResponse>> refundPayment(@PathVariable Long id) {
-        try {
-            PaymentResponse refunded = paymentService.refundPayment(id);
-            return ResponseEntity.ok(ApiResponse.success("Payment refunded successfully.", refunded));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
-        }
+    /**
+     * GET /api/payments/admin/user/{userId}
+     * Get all payments by a specific user (admin only).
+     */
+    @GetMapping("/admin/user/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getPaymentsByUser(
+            @PathVariable Long userId) {
+        return ResponseEntity.ok(ApiResponse.success("User payments",
+                paymentService.getPaymentsByUser(userId)));
     }
 
-    // ---- DELETE ----
+    /**
+     * POST /api/payments/admin/refund
+     * Process a refund for a payment (admin only).
+     */
+    @PostMapping("/admin/refund")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> processRefund(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody RefundRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Refund processed",
+                paymentService.processRefund(
+                        userDetails.getUsername(), request)));
+    }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> deletePayment(@PathVariable Long id) {
-        try {
-            paymentService.deletePayment(id);
-            return ResponseEntity.ok(ApiResponse.success("Payment record deleted."));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(e.getMessage()));
-        }
+    /**
+     * GET /api/payments/admin/revenue
+     * Get total revenue from all successful payments (admin only).
+     */
+    @GetMapping("/admin/revenue")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BigDecimal>> getTotalRevenue() {
+        return ResponseEntity.ok(ApiResponse.success("Total revenue",
+                paymentService.getTotalRevenue()));
+    }
+
+    /**
+     * GET /api/payments/admin/revenue/range
+     * Get revenue between two dates (admin only).
+     */
+    @GetMapping("/admin/revenue/range")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BigDecimal>> getRevenueBetween(
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime start,
+            @RequestParam
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime end) {
+        return ResponseEntity.ok(ApiResponse.success("Revenue in range",
+                paymentService.getRevenueBetween(start, end)));
     }
 }

@@ -1,266 +1,260 @@
 package lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service.impl;
 
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.request.PaymentRequest;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.request.RefundRequest;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.dto.response.PaymentResponse;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Payment;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.Rental;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.entity.User;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.PaymentMethod;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.PaymentStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.enums.RentalStatus;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.exception.ResourceNotFoundException;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository.PaymentRepository;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository.RentalRepository;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.repository.UserRepository;
 import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service.PaymentService;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.service.ReceiptService;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.util.PaymentGatewaySimulator;
-import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.util.PaymentGatewaySimulator.PaymentGatewayException;
+import lk.ac.sliit.Bike_Rental_and_Ride_SSharing_System.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
 
-    private final PaymentRepository      paymentRepository;
-    private final RentalRepository       rentalRepository;
-    private final ReceiptService         receiptService;
-    private final PaymentGatewaySimulator gateway;
+    private final PaymentRepository paymentRepository;
+    private final RentalRepository  rentalRepository;
+    private final UserRepository    userRepository;
+    private final SecurityUtil      securityUtil;
 
-    // ----------------------------------------------------------------
-    // INITIATE PAYMENT
-    // ----------------------------------------------------------------
+    // ── Make Payment ──────────────────────────────────────────────────────────
 
     @Override
     @Transactional
-    public PaymentResponse initiatePayment(PaymentRequest req) {
-        // 1. Load the rental
-        Rental rental = rentalRepository.findById(req.getRentalId())
-                .orElseThrow(() -> new RuntimeException("Rental not found: " + req.getRentalId()));
+    public PaymentResponse makePayment(String username, PaymentRequest request) {
+        User user = findUserOrThrow(username);
+        Rental rental = findRentalOrThrow(request.getRentalId());
 
-        if (!"PENDING".equals(rental.getStatus())) {
+        // Only the rental owner can pay
+        if (!rental.getUser().getUsername().equals(username)) {
             throw new IllegalStateException(
-                    "Payment can only be made for PENDING rentals. Current status: " + rental.getStatus());
+                    "You are not authorized to pay for this rental");
         }
 
-        // 2. Guard against duplicate payments
-        if (paymentRepository.existsByRentalIdAndPaymentStatus(req.getRentalId(), PaymentStatus.SUCCESS)) {
-            throw new IllegalStateException("This rental has already been paid successfully.");
+        // Rental must be COMPLETED to make payment
+        if (rental.getStatus() != RentalStatus.COMPLETED) {
+            throw new IllegalStateException(
+                    "Payment can only be made for COMPLETED rentals. " +
+                            "Current status: " + rental.getStatus());
         }
 
-        // 3. Build the payment record (PENDING initially)
+        // Check if already paid
+        boolean alreadyPaid = paymentRepository
+                .findByRentalIdAndStatus(rental.getId(), PaymentStatus.SUCCESS)
+                .isPresent();
+        if (alreadyPaid) {
+            throw new IllegalStateException(
+                    "Payment already made for this rental");
+        }
+
+        // Validate payment method
+        PaymentMethod method;
+        try {
+            method = PaymentMethod.valueOf(request.getPaymentMethod().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Invalid payment method. Must be: CASH, CARD, BANK_TRANSFER, or WALLET");
+        }
+
+        // Amount = finalFare from rental
+        BigDecimal amount = rental.getFinalFare() != null
+                ? rental.getFinalFare()
+                : rental.getEstimatedFare();
+
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Invalid payment amount for this rental");
+        }
+
+        // Generate unique transaction ID
+        String transactionId = "TXN-" + UUID.randomUUID().toString().toUpperCase();
+
         Payment payment = Payment.builder()
-                .rentalId(req.getRentalId())
-                .userId(req.getUserId())
-                .amount(rental.getTotalAmount())
-                .paymentMethod(req.getPaymentMethod())
-                .paymentStatus(PaymentStatus.PENDING)
+                .rental(rental)
+                .user(user)
+                .amount(amount)
+                .status(PaymentStatus.SUCCESS)
+                .paymentMethod(method)
+                .transactionId(transactionId)
+                .paymentNote(request.getPaymentNote())
                 .build();
 
-        // 4. Set method-specific fields
-        if (req.getPaymentMethod() == PaymentMethod.CARD) {
-            payment.setCardHolderName(req.getCardHolderName());
-            // Store only last 4 digits
-            if (req.getCardNumber() != null && req.getCardNumber().length() >= 4) {
-                payment.setCardLastFour(
-                        req.getCardNumber().replaceAll("\\s|-", "")
-                           .substring(req.getCardNumber().replaceAll("\\s|-", "").length() - 4));
-            }
-        } else if (req.getPaymentMethod() == PaymentMethod.BKASH) {
-            payment.setMobileNumber(req.getMobileNumber());
-        }
+        Payment saved = paymentRepository.save(payment);
+        log.info("Payment successful: id={}, rentalId={}, amount={}, txn={}",
+                saved.getId(), rental.getId(), amount, transactionId);
 
-        // 5. Save as PENDING first (so we have an ID even if gateway fails)
-        payment = paymentRepository.save(payment);
+        return toResponse(saved);
+    }
 
-        // 6. Call (simulated) gateway
-        try {
-            String transactionId = chargeGateway(req, rental.getTotalAmount());
-            payment.setTransactionId(transactionId);
-            payment.setPaymentStatus(PaymentStatus.SUCCESS);
-            payment.setPaidAt(LocalDateTime.now());
-            payment = paymentRepository.save(payment);
+    // ── Get My Payments ───────────────────────────────────────────────────────
 
-            // 7. Activate the rental
-            rental.setStatus("ACTIVE");
-            rentalRepository.save(rental);
+    @Override
+    public List<PaymentResponse> getMyPayments(String username) {
+        User user = findUserOrThrow(username);
+        return paymentRepository.findByUserId(user.getId())
+                .stream().map(this::toResponse).toList();
+    }
 
-            // 8. Auto-generate receipt
-            try {
-                receiptService.generateReceipt(payment.getId());
-            } catch (Exception e) {
-                // Receipt generation failure must NOT roll back the payment
-                log.error("Receipt generation failed for paymentId={}: {}", payment.getId(), e.getMessage());
-            }
+    // ── Get Payment By ID ─────────────────────────────────────────────────────
 
-            log.info("Payment SUCCESS: id={}, rental={}, method={}, txId={}",
-                    payment.getId(), rental.getId(), req.getPaymentMethod(), transactionId);
-
-        } catch (PaymentGatewayException e) {
-            // Mark the payment as FAILED but do NOT roll back the DB record
-            payment.setPaymentStatus(PaymentStatus.FAILED);
-            payment.setFailureReason(e.getMessage());
-            payment = paymentRepository.save(payment);
-
-            log.warn("Payment FAILED: rental={}, method={}, reason={}",
-                    req.getRentalId(), req.getPaymentMethod(), e.getMessage());
-
-            throw new RuntimeException("Payment failed: " + e.getMessage());
-        }
-
+    @Override
+    public PaymentResponse getPaymentById(String username, Long paymentId) {
+        Payment payment = findPaymentOrThrow(paymentId);
+        validatePaymentAccess(payment, username);
         return toResponse(payment);
     }
 
-    // ----------------------------------------------------------------
-    // READ
-    // ----------------------------------------------------------------
+    // ── Get Payments By Rental ────────────────────────────────────────────────
 
     @Override
-    public PaymentResponse getPaymentById(Long id) {
-        return toResponse(findOrThrow(id));
+    public List<PaymentResponse> getPaymentsByRental(String username, Long rentalId) {
+        Rental rental = findRentalOrThrow(rentalId);
+        if (!securityUtil.isAdmin() &&
+                !rental.getUser().getUsername().equals(username)) {
+            throw new IllegalStateException(
+                    "You are not authorized to view payments for this rental");
+        }
+        return paymentRepository.findByRentalId(rentalId)
+                .stream().map(this::toResponse).toList();
     }
+
+    // ── Admin: Get All Payments ───────────────────────────────────────────────
 
     @Override
     public List<PaymentResponse> getAllPayments() {
-        return paymentRepository.findAll().stream().map(this::toResponse).collect(Collectors.toList());
+        return paymentRepository.findAll()
+                .stream().map(this::toResponse).toList();
     }
+
+    // ── Admin: Get Payments By Status ─────────────────────────────────────────
+
+    @Override
+    public List<PaymentResponse> getPaymentsByStatus(String status) {
+        PaymentStatus paymentStatus;
+        try {
+            paymentStatus = PaymentStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Invalid status. Must be: PENDING, SUCCESS, FAILED, or REFUNDED");
+        }
+        return paymentRepository.findByStatus(paymentStatus)
+                .stream().map(this::toResponse).toList();
+    }
+
+    // ── Admin: Get Payments By User ───────────────────────────────────────────
 
     @Override
     public List<PaymentResponse> getPaymentsByUser(Long userId) {
-        return paymentRepository.findByUserIdOrderByCreatedAtDesc(userId)
-                .stream().map(this::toResponse).collect(Collectors.toList());
+        return paymentRepository.findByUserId(userId)
+                .stream().map(this::toResponse).toList();
     }
 
-    @Override
-    public List<PaymentResponse> getPaymentsByRental(Long rentalId) {
-        return paymentRepository.findByRentalIdOrderByCreatedAtDesc(rentalId)
-                .stream().map(this::toResponse).collect(Collectors.toList());
-    }
-
-    @Override
-    public List<PaymentResponse> getPaymentsByStatus(PaymentStatus status) {
-        return paymentRepository.findByPaymentStatusOrderByCreatedAtDesc(status)
-                .stream().map(this::toResponse).collect(Collectors.toList());
-    }
-
-    // ----------------------------------------------------------------
-    // UPDATE STATUS (admin manual override)
-    // ----------------------------------------------------------------
+    // ── Admin: Process Refund ─────────────────────────────────────────────────
 
     @Override
     @Transactional
-    public PaymentResponse updatePaymentStatus(Long id, PaymentStatus status) {
-        Payment payment = findOrThrow(id);
-        payment.setPaymentStatus(status);
-        if (status == PaymentStatus.SUCCESS && payment.getPaidAt() == null) {
-            payment.setPaidAt(LocalDateTime.now());
-        }
-        return toResponse(paymentRepository.save(payment));
-    }
+    public PaymentResponse processRefund(String username, RefundRequest request) {
+        Payment payment = findPaymentOrThrow(request.getPaymentId());
 
-    // ----------------------------------------------------------------
-    // REFUND
-    // ----------------------------------------------------------------
-
-    @Override
-    @Transactional
-    public PaymentResponse refundPayment(Long paymentId) {
-        Payment payment = findOrThrow(paymentId);
-
-        if (payment.getPaymentStatus() != PaymentStatus.SUCCESS) {
-            throw new IllegalStateException("Only successful payments can be refunded.");
-        }
-        if (payment.getPaymentStatus() == PaymentStatus.REFUNDED) {
-            throw new IllegalStateException("Payment has already been refunded.");
+        // Only SUCCESS payments can be refunded
+        if (payment.getStatus() != PaymentStatus.SUCCESS) {
+            throw new IllegalStateException(
+                    "Only successful payments can be refunded. " +
+                            "Current status: " + payment.getStatus());
         }
 
-        // Process refund via gateway
-        String refundRef = gateway.processRefund(payment.getTransactionId(), payment.getPaymentMethod());
+        // Use refund amount from rental cancellation if available
+        BigDecimal refundAmount = payment.getRental().getRefundAmount() != null
+                ? payment.getRental().getRefundAmount()
+                : payment.getAmount();
 
-        payment.setPaymentStatus(PaymentStatus.REFUNDED);
-        payment.setRefundTransactionId(refundRef);
+        payment.setStatus(PaymentStatus.REFUNDED);
+        payment.setRefundAmount(refundAmount);
+        payment.setRefundReason(request.getRefundReason());
         payment.setRefundedAt(LocalDateTime.now());
 
-        // Cancel the associated rental
-        rentalRepository.findById(payment.getRentalId()).ifPresent(rental -> {
-            rental.setStatus("CANCELLED");
-            rentalRepository.save(rental);
-        });
+        Payment saved = paymentRepository.save(payment);
+        log.info("Refund processed: paymentId={}, refundAmount={}", saved.getId(), refundAmount);
 
-        log.info("Payment REFUNDED: id={}, refundRef={}", paymentId, refundRef);
-        return toResponse(paymentRepository.save(payment));
+        return toResponse(saved);
     }
 
-    // ----------------------------------------------------------------
-    // DELETE
-    // ----------------------------------------------------------------
+    // ── Admin: Total Revenue ──────────────────────────────────────────────────
 
     @Override
-    @Transactional
-    public void deletePayment(Long id) {
-        if (!paymentRepository.existsById(id)) {
-            throw new RuntimeException("Payment not found with id: " + id);
+    public BigDecimal getTotalRevenue() {
+        return paymentRepository.sumAmountByStatus(PaymentStatus.SUCCESS);
+    }
+
+    // ── Admin: Revenue Between Dates ──────────────────────────────────────────
+
+    @Override
+    public BigDecimal getRevenueBetween(LocalDateTime start, LocalDateTime end) {
+        return paymentRepository.sumAmountByStatusBetween(PaymentStatus.SUCCESS, start, end);
+    }
+
+    // ── Private Helpers ───────────────────────────────────────────────────────
+
+    private void validatePaymentAccess(Payment payment, String username) {
+        if (!securityUtil.isAdmin() &&
+                !payment.getUser().getUsername().equals(username)) {
+            throw new IllegalStateException(
+                    "You are not authorized to access this payment");
         }
-        paymentRepository.deleteById(id);
-        log.info("Payment deleted: id={}", id);
     }
 
-    // ----------------------------------------------------------------
-    // Private helpers
-    // ----------------------------------------------------------------
+    private User findUserOrThrow(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "User not found: " + username));
+    }
 
-    private Payment findOrThrow(Long id) {
+    private Rental findRentalOrThrow(Long id) {
+        return rentalRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Rental not found: id=" + id));
+    }
+
+    private Payment findPaymentOrThrow(Long id) {
         return paymentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payment not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Payment not found: id=" + id));
     }
 
-    /**
-     * Route to the correct gateway method based on the payment method.
-     */
-    private String chargeGateway(PaymentRequest req, java.math.BigDecimal amount) {
-        return switch (req.getPaymentMethod()) {
-            case CARD   -> gateway.processCardPayment(
-                    req.getCardNumber(),
-                    req.getCardHolderName(),
-                    req.getCardExpiry(),
-                    req.getCvv(),
-                    amount.movePointRight(2).longValue());
-            case BKASH  -> gateway.processBkashPayment(
-                    req.getMobileNumber(),
-                    req.getMobileToken(),
-                    amount);
-            case STRIPE -> gateway.processStripePayment(
-                    req.getStripeToken(),
-                    amount);
-        };
-    }
-
-    // ----------------------------------------------------------------
-    // Mapper
-    // ----------------------------------------------------------------
-
-    private PaymentResponse toResponse(Payment p) {
+    private PaymentResponse toResponse(Payment payment) {
         return PaymentResponse.builder()
-                .id(p.getId())
-                .rentalId(p.getRentalId())
-                .userId(p.getUserId())
-                .amount(p.getAmount())
-                .paymentMethod(p.getPaymentMethod())
-                .paymentStatus(p.getPaymentStatus())
-                .transactionId(p.getTransactionId())
-                .cardLastFour(p.getCardLastFour())
-                .cardHolderName(p.getCardHolderName())
-                .mobileNumber(p.getMobileNumber())
-                .paidAt(p.getPaidAt())
-                .failureReason(p.getFailureReason())
-                .refundTransactionId(p.getRefundTransactionId())
-                .refundedAt(p.getRefundedAt())
-                .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
+                .id(payment.getId())
+                .rentalId(payment.getRental().getId())
+                .bikeTitle(payment.getRental().getBike().getTitle())
+                .userId(payment.getUser().getId())
+                .username(payment.getUser().getUsername())
+                .amount(payment.getAmount())
+                .status(payment.getStatus().name())
+                .paymentMethod(payment.getPaymentMethod().name())
+                .transactionId(payment.getTransactionId())
+                .paymentNote(payment.getPaymentNote())
+                .refundAmount(payment.getRefundAmount())
+                .refundReason(payment.getRefundReason())
+                .refundedAt(payment.getRefundedAt())
+                .createdAt(payment.getCreatedAt())
+                .updatedAt(payment.getUpdatedAt())
                 .build();
     }
 }
