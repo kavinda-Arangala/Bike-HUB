@@ -7,18 +7,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class SecurityUtil {
 
+    /**
+     * Returns true if the currently authenticated user has the ADMIN role.
+     */
     public boolean isAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) return false;
         return auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
     }
 
-    public String getCurrentUserEmail() {
-        return SecurityContextHolder.getContext()
-                .getAuthentication().getName();
-    }
-
-    public boolean isOwnerOrAdmin(String ownerEmail) {
-        return isAdmin() || getCurrentUserEmail().equals(ownerEmail);
+    /**
+     * Returns the username of the currently authenticated user.
+     */
+    public String getCurrentUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) return null;
+        return auth.getName();
     }
 }

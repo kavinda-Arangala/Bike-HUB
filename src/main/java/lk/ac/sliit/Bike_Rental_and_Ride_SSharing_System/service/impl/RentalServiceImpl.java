@@ -35,19 +35,19 @@ import java.util.List;
 public class RentalServiceImpl implements RentalService {
 
     private final RentalRepository rentalRepository;
-    private final BikeRepository bikeRepository;
-    private final UserRepository userRepository;
-    private final SecurityUtil securityUtil;
+    private final BikeRepository   bikeRepository;
+    private final UserRepository   userRepository;
+    private final SecurityUtil     securityUtil;
 
     // ── Create Rental ─────────────────────────────────────────────────────────
 
     @Override
     @Transactional
-    public RentalResponse createRental(String email, RentalRequest request) {
+    public RentalResponse createRental(String username, RentalRequest request) {
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now   = LocalDateTime.now();
         LocalDateTime start = request.getPlannedStartTime();
-        LocalDateTime end = request.getPlannedEndTime();
+        LocalDateTime end   = request.getPlannedEndTime();
 
         // Must book at least 30 minutes ahead
         if (ChronoUnit.MINUTES.between(now, start) < RentalPolicy.MIN_BOOKING_LEAD_MINUTES) {
@@ -56,28 +56,22 @@ public class RentalServiceImpl implements RentalService {
                             RentalPolicy.MIN_BOOKING_LEAD_MINUTES + " minutes in advance");
         }
 
-        // End must be after start
         if (!end.isAfter(start)) {
             throw new IllegalStateException("End time must be after start time");
         }
 
-        // Minimum duration check
         long hours = ChronoUnit.HOURS.between(start, end);
         if (hours < RentalPolicy.MIN_RENTAL_HOURS) {
             throw new IllegalStateException(
-                    "Minimum rental duration is " +
-                            RentalPolicy.MIN_RENTAL_HOURS + " hour(s)");
+                    "Minimum rental duration is " + RentalPolicy.MIN_RENTAL_HOURS + " hour(s)");
         }
 
-        // Maximum duration check
         long days = ChronoUnit.DAYS.between(start, end);
         if (days > RentalPolicy.MAX_RENTAL_DAYS) {
             throw new IllegalStateException(
-                    "Maximum rental duration is " +
-                            RentalPolicy.MAX_RENTAL_DAYS + " days");
+                    "Maximum rental duration is " + RentalPolicy.MAX_RENTAL_DAYS + " days");
         }
 
-        // Advance booking limit
         long advanceDays = ChronoUnit.DAYS.between(now, start);
         if (advanceDays > RentalPolicy.MAX_ADVANCE_BOOKING_DAYS) {
             throw new IllegalStateException(
@@ -85,19 +79,19 @@ public class RentalServiceImpl implements RentalService {
                             RentalPolicy.MAX_ADVANCE_BOOKING_DAYS + " days in advance");
         }
 
-        User user = findUserOrThrow(email);
+        // ── Fixed: lookup by username, not email ──────────────────────────────
+        User user = findUserOrThrow(username);
         Bike bike = findBikeOrThrow(request.getBikeId());
 
-        // Bike availability check
         if (bike.getStatus() != BikeStatus.AVAILABLE) {
-            throw new BikeNotAvailableException(
-                    "Bike is not available: " + bike.getTitle());
+            throw new BikeNotAvailableException("Bike is not available: " + bike.getTitle());
         }
 
-        // Overlap check
-        if (rentalRepository.existsOverlappingRental(bike.getId(), start, end)) {
-            throw new BikeNotAvailableException(
-                    "Bike already booked for the selected period");
+        // ── Fixed: pass enum params to overlap query ───────────────────────────
+        if (rentalRepository.existsOverlappingRental(
+                bike.getId(), start, end,
+                RentalStatus.PENDING, RentalStatus.ACTIVE)) {
+            throw new BikeNotAvailableException("Bike already booked for the selected period");
         }
 
         BigDecimal estimatedFare = calculateFare(bike, start, end);
@@ -113,8 +107,7 @@ public class RentalServiceImpl implements RentalService {
                 .build();
 
         Rental saved = rentalRepository.save(rental);
-        log.info("Rental created: id={}, user={}, bike={}",
-                saved.getId(), email, bike.getId());
+        log.info("Rental created: id={}, user={}, bike={}", saved.getId(), username, bike.getId());
         return toResponse(saved);
     }
 
@@ -122,9 +115,9 @@ public class RentalServiceImpl implements RentalService {
 
     @Override
     @Transactional
-    public RentalResponse startRental(String email, Long rentalId) {
+    public RentalResponse startRental(String username, Long rentalId) {
         Rental rental = findRentalOrThrow(rentalId);
-        validateRentalAccess(rental, email);
+        validateRentalAccess(rental, username);
 
         if (rental.getStatus() != RentalStatus.PENDING) {
             throw new IllegalStateException(
@@ -144,10 +137,10 @@ public class RentalServiceImpl implements RentalService {
 
     @Override
     @Transactional
-    public RentalResponse completeRental(String email, Long rentalId,
+    public RentalResponse completeRental(String username, Long rentalId,
                                          BigDecimal distanceKm) {
         Rental rental = findRentalOrThrow(rentalId);
-        validateRentalAccess(rental, email);
+        validateRentalAccess(rental, username);
 
         if (rental.getStatus() != RentalStatus.ACTIVE) {
             throw new IllegalStateException(
@@ -166,8 +159,7 @@ public class RentalServiceImpl implements RentalService {
 
         Bike bike = rental.getBike();
         bike.setStatus(BikeStatus.AVAILABLE);
-        bike.setTotalRentals(bike.getTotalRentals() != null
-                ? bike.getTotalRentals() + 1 : 1);
+        bike.setTotalRentals(bike.getTotalRentals() != null ? bike.getTotalRentals() + 1 : 1);
         bikeRepository.save(bike);
 
         log.info("Rental completed: id={}, fare={}", rentalId, rental.getFinalFare());
@@ -178,10 +170,10 @@ public class RentalServiceImpl implements RentalService {
 
     @Override
     @Transactional
-    public CancellationResponse cancelRental(String email, Long rentalId,
+    public CancellationResponse cancelRental(String username, Long rentalId,
                                              RentalCancelRequest request) {
         Rental rental = findRentalOrThrow(rentalId);
-        validateRentalAccess(rental, email);
+        validateRentalAccess(rental, username);
 
         if (rental.getStatus() == RentalStatus.COMPLETED ||
                 rental.getStatus() == RentalStatus.CANCELLED) {
@@ -192,16 +184,13 @@ public class RentalServiceImpl implements RentalService {
         LocalDateTime now = LocalDateTime.now();
         long hoursUntilStart = ChronoUnit.HOURS.between(now, rental.getPlannedStartTime());
 
-        // Block cancellation within NO_CANCEL window
         if (rental.getStatus() == RentalStatus.PENDING &&
                 hoursUntilStart < RentalPolicy.NO_CANCEL_HOURS) {
             throw new IllegalStateException(
                     "Cancellation not allowed within " +
-                            RentalPolicy.NO_CANCEL_HOURS + " hour(s) of start time. " +
-                            "Please contact support.");
+                            RentalPolicy.NO_CANCEL_HOURS + " hour(s) of start time.");
         }
 
-        // Determine fee
         boolean freeCancellation = hoursUntilStart >= RentalPolicy.FREE_CANCEL_HOURS
                 || rental.getStatus() == RentalStatus.ACTIVE;
 
@@ -214,8 +203,8 @@ public class RentalServiceImpl implements RentalService {
 
         if (freeCancellation) {
             cancellationFee = BigDecimal.ZERO;
-            refundAmount = estimatedFare;
-            policyMessage = "Free cancellation applied. Full refund will be processed.";
+            refundAmount    = estimatedFare;
+            policyMessage   = "Free cancellation applied. Full refund will be processed.";
         } else {
             cancellationFee = estimatedFare
                     .multiply(BigDecimal.valueOf(RentalPolicy.LATE_CANCEL_FEE_PCT))
@@ -225,10 +214,9 @@ public class RentalServiceImpl implements RentalService {
                     .setScale(2, RoundingMode.HALF_UP);
             policyMessage = "Late cancellation fee of " +
                     (int)(RentalPolicy.LATE_CANCEL_FEE_PCT * 100) +
-                    "% applied. Refund amount: " + refundAmount;
+                    "% applied. Refund: " + refundAmount;
         }
 
-        // Free bike if active
         if (rental.getStatus() == RentalStatus.ACTIVE) {
             rental.getBike().setStatus(BikeStatus.AVAILABLE);
             bikeRepository.save(rental.getBike());
@@ -241,8 +229,7 @@ public class RentalServiceImpl implements RentalService {
         rental.setRefundAmount(refundAmount);
         rentalRepository.save(rental);
 
-        log.info("Rental cancelled: id={}, fee={}, refund={}",
-                rentalId, cancellationFee, refundAmount);
+        log.info("Rental cancelled: id={}, fee={}, refund={}", rentalId, cancellationFee, refundAmount);
 
         return CancellationResponse.builder()
                 .rentalId(rental.getId())
@@ -260,18 +247,16 @@ public class RentalServiceImpl implements RentalService {
 
     @Override
     @Transactional
-    public RentalResponse submitReview(String email, Long rentalId,
+    public RentalResponse submitReview(String username, Long rentalId,
                                        RentalReviewRequest request) {
         Rental rental = findRentalOrThrow(rentalId);
-        validateRentalAccess(rental, email);
+        validateRentalAccess(rental, username);
 
         if (rental.getStatus() != RentalStatus.COMPLETED) {
             throw new IllegalStateException("Can only review completed rentals");
         }
-
         if (rental.getRating() != null) {
-            throw new IllegalStateException(
-                    "Review already submitted for this rental");
+            throw new IllegalStateException("Review already submitted for this rental");
         }
 
         rental.setRating(request.getRating());
@@ -287,22 +272,22 @@ public class RentalServiceImpl implements RentalService {
     // ── Query Operations ──────────────────────────────────────────────────────
 
     @Override
-    public RentalResponse getRentalById(String email, Long rentalId) {
+    public RentalResponse getRentalById(String username, Long rentalId) {
         Rental rental = findRentalOrThrow(rentalId);
-        validateRentalAccess(rental, email);
+        validateRentalAccess(rental, username);
         return toResponse(rental);
     }
 
     @Override
-    public List<RentalResponse> getMyRentals(String email) {
-        User user = findUserOrThrow(email);
+    public List<RentalResponse> getMyRentals(String username) {
+        User user = findUserOrThrow(username);
         return rentalRepository.findByUserId(user.getId())
                 .stream().map(this::toResponse).toList();
     }
 
     @Override
-    public List<RentalResponse> getMyActiveRentals(String email) {
-        User user = findUserOrThrow(email);
+    public List<RentalResponse> getMyActiveRentals(String username) {
+        User user = findUserOrThrow(username);
         return rentalRepository.findByUserIdAndStatus(user.getId(), RentalStatus.ACTIVE)
                 .stream().map(this::toResponse).toList();
     }
@@ -339,44 +324,47 @@ public class RentalServiceImpl implements RentalService {
 
     @Override
     public BigDecimal getTotalRevenue() {
-        return rentalRepository.calculateTotalRevenue();
+        // ── Fixed: pass enum param instead of relying on string literal ───────
+        return rentalRepository.calculateTotalRevenue(RentalStatus.COMPLETED);
     }
 
     @Override
     public BigDecimal getRevenueBetween(LocalDateTime start, LocalDateTime end) {
-        return rentalRepository.calculateRevenueBetween(start, end);
+        return rentalRepository.calculateRevenueBetween(start, end, RentalStatus.COMPLETED);
     }
 
     // ── Private Helpers ───────────────────────────────────────────────────────
 
-    private void validateRentalAccess(Rental rental, String email) {
+    /**
+     * Fixed: compare username (from JWT) not email.
+     */
+    private void validateRentalAccess(Rental rental, String username) {
         if (!securityUtil.isAdmin() &&
-                !rental.getUser().getEmail().equals(email)) {
-            throw new IllegalStateException(
-                    "You are not authorized to access this rental");
+                !rental.getUser().getUsername().equals(username)) {
+            throw new IllegalStateException("You are not authorized to access this rental");
         }
     }
 
-    private User findUserOrThrow(String email) {
-        return userRepository.findByEmail(email)
+    /**
+     * Fixed: lookup by username, not email.
+     */
+    private User findUserOrThrow(String username) {
+        return userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "User not found: " + email));
+                        "User not found: " + username));
     }
 
     private Bike findBikeOrThrow(Long id) {
         return bikeRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Bike not found: id=" + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Bike not found: id=" + id));
     }
 
     private Rental findRentalOrThrow(Long id) {
         return rentalRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Rental not found: id=" + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Rental not found: id=" + id));
     }
 
-    private BigDecimal calculateFare(Bike bike, LocalDateTime start,
-                                     LocalDateTime end) {
+    private BigDecimal calculateFare(Bike bike, LocalDateTime start, LocalDateTime end) {
         long minutes = ChronoUnit.MINUTES.between(start, end);
         BigDecimal days = BigDecimal.valueOf(minutes)
                 .divide(BigDecimal.valueOf(1440), 4, RoundingMode.HALF_UP);
@@ -387,9 +375,8 @@ public class RentalServiceImpl implements RentalService {
     }
 
     private void updateBikeRating(Bike bike, int newRating) {
-        int total = bike.getTotalRentals() != null ? bike.getTotalRentals() : 1;
-        double current = bike.getAverageRating() != null
-                ? bike.getAverageRating() : 0.0;
+        int total    = bike.getTotalRentals() != null ? bike.getTotalRentals() : 1;
+        double current = bike.getAverageRating() != null ? bike.getAverageRating() : 0.0;
         double updated = ((current * (total - 1)) + newRating) / total;
         bike.setAverageRating(Math.round(updated * 10.0) / 10.0);
         bikeRepository.save(bike);
@@ -399,7 +386,7 @@ public class RentalServiceImpl implements RentalService {
         return RentalResponse.builder()
                 .id(rental.getId())
                 .userId(rental.getUser().getId())
-                .userName(rental.getUser().getName())
+                .userName(rental.getUser().getUsername())
                 .userEmail(rental.getUser().getEmail())
                 .bikeId(rental.getBike().getId())
                 .bikeTitle(rental.getBike().getTitle())
